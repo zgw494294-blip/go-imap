@@ -19,6 +19,13 @@ func (c *Conn) handleList(dec *imapwire.Decoder) error {
 		return err
 	}
 
+	if options.ReturnStatus != nil && options.ReturnStatus.MailboxID && !c.server.options.caps().Has(imap.CapObjectID) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeBad,
+			Text: "Unknown STATUS data item",
+		}
+	}
+
 	w := &ListWriter{
 		conn:    c,
 		options: options,

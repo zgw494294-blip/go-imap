@@ -35,6 +35,12 @@ func (c *Conn) handleStatus(dec *imapwire.Decoder) error {
 			Text: "Unknown STATUS data item",
 		}
 	}
+	if options.MailboxID && !c.server.options.caps().Has(imap.CapObjectID) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeBad,
+			Text: "Unknown STATUS data item",
+		}
+	}
 
 	if err := c.checkState(imap.ConnStateAuthenticated); err != nil {
 		return err
@@ -49,6 +55,14 @@ func (c *Conn) handleStatus(dec *imapwire.Decoder) error {
 }
 
 func (c *Conn) writeStatus(data *imap.StatusData, options *imap.StatusOptions) error {
+	if options.MailboxID && !validObjectID(data.MailboxID) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Code: imap.ResponseCodeServerBug,
+			Text: "Internal server error",
+		}
+	}
+
 	enc := newResponseEncoder(c)
 	defer enc.end()
 
@@ -86,6 +100,10 @@ func (c *Conn) writeStatus(data *imap.StatusData, options *imap.StatusOptions) e
 	if options.NumRecent {
 		listEnc.Item().Atom("RECENT").SP().Number(*data.NumRecent)
 	}
+	if options.MailboxID {
+		listEnc.Item().Atom(string(imap.ResponseCodeMailboxID)).SP()
+		writeObjectID(enc.Encoder, data.MailboxID)
+	}
 	listEnc.End()
 
 	return enc.CRLF()
@@ -115,6 +133,8 @@ func readStatusItem(dec *imapwire.Decoder, options *imap.StatusOptions) error {
 		options.DeletedStorage = true
 	case "RECENT":
 		options.NumRecent = true
+	case "MAILBOXID":
+		options.MailboxID = true
 	default:
 		return &imap.Error{
 			Type: imap.StatusResponseTypeBad,

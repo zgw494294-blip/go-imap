@@ -68,6 +68,18 @@ func (c *Conn) handleSelect(tag string, dec *imapwire.Decoder, readOnly bool) er
 			return err
 		}
 	}
+	if c.server.options.caps().Has(imap.CapObjectID) {
+		if !validObjectID(data.MailboxID) {
+			return &imap.Error{
+				Type: imap.StatusResponseTypeNo,
+				Code: imap.ResponseCodeServerBug,
+				Text: "Internal server error",
+			}
+		}
+		if err := c.writeMailboxID(data.MailboxID); err != nil {
+			return err
+		}
+	}
 
 	c.state = imap.ConnStateSelected
 	// TODO: forbid write commands in read-only mode
@@ -141,6 +153,16 @@ func (c *Conn) writeUIDValidity(uidValidity uint32) error {
 	enc.Atom("*").SP().Atom("OK").SP()
 	enc.Special('[').Atom("UIDVALIDITY").SP().Number(uidValidity).Special(']')
 	enc.SP().Text("UIDs valid")
+	return enc.CRLF()
+}
+
+func (c *Conn) writeMailboxID(id string) error {
+	enc := newResponseEncoder(c)
+	defer enc.end()
+	enc.Atom("*").SP().Atom("OK").SP()
+	enc.Special('[').Atom(string(imap.ResponseCodeMailboxID)).SP()
+	writeObjectID(enc.Encoder, id)
+	enc.Special(']').SP().Text("Mailbox persistent identifier")
 	return enc.CRLF()
 }
 

@@ -122,13 +122,23 @@ func (u *User) Append(mailbox string, r imap.LiteralReader, options *imap.Append
 }
 
 func (u *User) Create(name string, options *imap.CreateOptions) error {
+	_, err := u.create(name, options)
+	return err
+}
+
+// create creates a new mailbox and returns it.
+//
+// A brand new Mailbox object (with a fresh UIDVALIDITY and MAILBOXID) is
+// allocated each time, so a deleted and re-created mailbox with the same name
+// cannot be confused with the previous one.
+func (u *User) create(name string, options *imap.CreateOptions) (*Mailbox, error) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
 	name = strings.TrimRight(name, string(mailboxDelim))
 
 	if u.mailboxes[name] != nil {
-		return &imap.Error{
+		return nil, &imap.Error{
 			Type: imap.StatusResponseTypeNo,
 			Code: imap.ResponseCodeAlreadyExists,
 			Text: "Mailbox already exists",
@@ -138,8 +148,9 @@ func (u *User) Create(name string, options *imap.CreateOptions) error {
 	// UIDVALIDITY must change if a mailbox is deleted and re-created with the
 	// same name.
 	u.prevUidValidity++
-	u.mailboxes[name] = NewMailbox(name, u.prevUidValidity)
-	return nil
+	mbox := NewMailbox(name, u.prevUidValidity)
+	u.mailboxes[name] = mbox
+	return mbox, nil
 }
 
 func (u *User) Delete(name string) error {

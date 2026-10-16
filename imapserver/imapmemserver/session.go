@@ -19,11 +19,25 @@ type UserSession struct {
 	*mailbox // may be nil
 }
 
-var _ imapserver.SessionIMAP4rev2 = (*UserSession)(nil)
+var (
+	_ imapserver.SessionIMAP4rev2 = (*UserSession)(nil)
+	_ imapserver.SessionObjectID  = (*UserSession)(nil)
+)
 
 // NewUserSession creates a new user session.
 func NewUserSession(user *User) *UserSession {
 	return &UserSession{user: user}
+}
+
+// CreateMailbox creates a mailbox and returns its persistent MAILBOXID.
+//
+// It implements imapserver.SessionObjectID (RFC 8474).
+func (sess *UserSession) CreateMailbox(name string, options *imap.CreateOptions) (*imap.CreateData, error) {
+	mbox, err := sess.user.create(name, options)
+	if err != nil {
+		return nil, err
+	}
+	return &imap.CreateData{MailboxID: mbox.MailboxID()}, nil
 }
 
 func (sess *UserSession) Close() error {

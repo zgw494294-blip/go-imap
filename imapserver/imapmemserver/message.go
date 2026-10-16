@@ -17,9 +17,10 @@ import (
 
 type message struct {
 	// immutable
-	uid imap.UID
-	buf []byte
-	t   time.Time
+	uid     imap.UID
+	buf     []byte
+	t       time.Time
+	emailID string
 
 	// mutable, protected by Mailbox.mutex
 	flags map[imap.Flag]struct{}
@@ -28,6 +29,14 @@ type message struct {
 func (msg *message) fetch(w *imapserver.FetchResponseWriter, options *imap.FetchOptions) error {
 	w.WriteUID(msg.uid)
 
+	if options.EmailID {
+		w.WriteEmailID(msg.emailID)
+	}
+	if options.ThreadID {
+		// The in-memory backend does not compute threads, so THREADID is
+		// always NIL (RFC 8474 section 5.2).
+		w.WriteThreadID("")
+	}
 	if options.Flags {
 		w.WriteFlags(msg.flagList())
 	}
@@ -131,6 +140,14 @@ func (msg *message) search(seqNum uint32, criteria *imap.SearchCriteria) bool {
 		if !uidSet.Contains(msg.uid) {
 			return false
 		}
+	}
+	if criteria.EmailID != "" && criteria.EmailID != msg.emailID {
+		return false
+	}
+	// The in-memory backend does not compute threads: a THREADID search key
+	// never matches.
+	if criteria.ThreadID != "" {
+		return false
 	}
 	if !matchDate(msg.t, criteria.Since, criteria.Before) {
 		return false

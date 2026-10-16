@@ -2,13 +2,27 @@ package imapmemserver
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 )
+
+// objectIDCounter is the source of process-wide unique OBJECTID values.
+//
+// It is shared between all mailboxes and messages so that two messages (or
+// mailboxes) cannot share an identifier just because they happen to use the
+// same UID or name within different containers.
+var objectIDCounter uint64
+
+func newObjectID(prefix string) string {
+	n := atomic.AddUint64(&objectIDCounter, 1)
+	return fmt.Sprintf("%s%x", prefix, n)
+}
 
 // Mailbox is an in-memory mailbox.
 //
@@ -17,6 +31,7 @@ import (
 type Mailbox struct {
 	tracker     *imapserver.MailboxTracker
 	uidValidity uint32
+	id          string
 
 	mutex      sync.Mutex
 	name       string
@@ -31,9 +46,19 @@ func NewMailbox(name string, uidValidity uint32) *Mailbox {
 	return &Mailbox{
 		tracker:     imapserver.NewMailboxTracker(0),
 		uidValidity: uidValidity,
+		id:          newObjectID("F"),
 		name:        name,
 		uidNext:     1,
 	}
+}
+
+// MailboxID returns the server-allocated persistent identifier of the
+// mailbox (RFC 8474 OBJECTID).
+//
+// The identifier is stable for the whole lifetime of the Mailbox object: it
+// does not change when the mailbox is renamed.
+func (mbox *Mailbox) MailboxID() string {
+	return mbox.id
 }
 
 func (mbox *Mailbox) list(options *imap.ListOptions) *imap.ListData {
@@ -98,6 +123,9 @@ func (mbox *Mailbox) statusDataLocked(options *imap.StatusOptions) *imap.StatusD
 		num := uint32(0)
 		data.NumRecent = &num
 	}
+	if options.MailboxID {
+		data.MailboxID = mbox.id
+	}
 	return &data
 }
 
@@ -127,17 +155,24 @@ func (mbox *Mailbox) appendLiteral(r imap.LiteralReader, options *imap.AppendOpt
 	return mbox.appendBytes(buf.Bytes(), options), nil
 }
 
+// copyMsg duplicates a message into the mailbox, preserving its immutable
+// EMAILID (RFC 8474), even though the copy gets a brand new UID.
 func (mbox *Mailbox) copyMsg(msg *message) *imap.AppendData {
-	return mbox.appendBytes(msg.buf, &imap.AppendOptions{
+	return mbox.appendMessage(msg.buf, &imap.AppendOptions{
 		Time:  msg.t,
 		Flags: msg.flagList(),
-	})
+	}, msg.emailID)
 }
 
 func (mbox *Mailbox) appendBytes(buf []byte, options *imap.AppendOptions) *imap.AppendData {
+	return mbox.appendMessage(buf, options, newObjectID("M"))
+}
+
+func (mbox *Mailbox) appendMessage(buf []byte, options *imap.AppendOptions, emailID string) *imap.AppendData {
 	msg := &message{
-		flags: make(map[imap.Flag]struct{}),
-		buf:   buf,
+		flags:   make(map[imap.Flag]struct{}),
+		buf:     buf,
+		emailID: emailID,
 	}
 
 	if options.Time.IsZero() {
@@ -196,6 +231,7 @@ func (mbox *Mailbox) selectDataLocked() *imap.SelectData {
 		FirstUnseenSeqNum: firstUnseenSeqNum,
 		UIDNext:           mbox.uidNext,
 		UIDValidity:       mbox.uidValidity,
+		MailboxID:         mbox.id,
 	}
 }
 

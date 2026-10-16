@@ -28,4 +28,6 @@ type SelectData struct {
 	List *ListData // requires IMAP4rev2
 
 	HighestModSeq uint64 // requires CONDSTORE
+
+	MailboxID string // requires OBJECTID
 }

@@ -92,6 +92,20 @@ type SessionMove interface {
 	Move(w *MoveWriter, numSet imap.NumSet, dest string) error
 }
 
+// SessionObjectID is an IMAP session which supports the OBJECTID extension
+// (RFC 8474).
+//
+// Sessions implementing this interface return a stable mailbox object
+// identifier on CREATE. The remaining OBJECTID data is provided through the
+// existing Select, Status, Fetch and Search methods.
+type SessionObjectID interface {
+	Session
+
+	// CreateMailbox creates a mailbox and returns its persistent object
+	// identifier.
+	CreateMailbox(mailbox string, options *imap.CreateOptions) (*imap.CreateData, error)
+}
+
 // SessionIMAP4rev2 is an IMAP session which supports IMAP4rev2.
 type SessionIMAP4rev2 interface {
 	Session

@@ -59,6 +59,9 @@ type SearchCriteria struct {
 	Or  [][2]SearchCriteria
 
 	ModSeq *SearchCriteriaModSeq // requires CONDSTORE
+
+	EmailID  string // requires OBJECTID
+	ThreadID string // requires OBJECTID
 }
 
 // And intersects two search criteria.

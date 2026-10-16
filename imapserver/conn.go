@@ -150,6 +150,9 @@ func (c *Conn) serve() {
 	if _, ok := c.session.(SessionMove); !ok && caps.Has(imap.CapMove) {
 		panic("imapserver: server advertises MOVE but session doesn't support it")
 	}
+	if _, ok := c.session.(SessionObjectID); !ok && caps.Has(imap.CapObjectID) {
+		panic("imapserver: server advertises OBJECTID but session doesn't support it")
+	}
 	if _, ok := c.session.(SessionUnauthenticate); !ok && caps.Has(imap.CapUnauthenticate) {
 		panic("imapserver: server advertises UNAUTHENTICATE but session doesn't support it")
 	}
@@ -238,7 +241,8 @@ func (c *Conn) readCommand(dec *imapwire.Decoder) error {
 	case "ENABLE":
 		err = c.handleEnable(dec)
 	case "CREATE":
-		err = c.handleCreate(dec)
+		err = c.handleCreate(tag, dec)
+		sendOK = false
 	case "DELETE":
 		err = c.handleDelete(dec)
 	case "RENAME":

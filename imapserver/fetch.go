@@ -79,6 +79,10 @@ func (c *Conn) handleFetch(dec *imapwire.Decoder, numKind NumKind) error {
 		return dec.Err()
 	}
 
+	if (options.EmailID || options.ThreadID) && !c.server.options.caps().Has(imap.CapObjectID) {
+		return newClientBugError("Unknown FETCH data item")
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
@@ -108,6 +112,10 @@ func handleFetchAtt(dec *imapwire.Decoder, attName string, options *imap.FetchOp
 		options.RFC822Size = true
 	case "UID":
 		options.UID = true
+	case "EMAILID":
+		options.EmailID = true
+	case "THREADID":
+		options.ThreadID = true
 	case "RFC822": // equivalent to BODY[]
 		bs := &imap.FetchItemBodySection{}
 		writerOptions.obsolete[bs] = attName
@@ -356,6 +364,32 @@ func (w *FetchResponseWriter) writeItemSep() {
 func (w *FetchResponseWriter) WriteUID(uid imap.UID) {
 	w.writeItemSep()
 	w.enc.Atom("UID").SP().UID(uid)
+}
+
+// WriteEmailID writes the message's EMAILID (RFC 8474 OBJECTID).
+//
+// The identifier must be a valid objectid. It must be stable for the
+// message's whole lifetime, including COPY and MOVE.
+func (w *FetchResponseWriter) WriteEmailID(id string) {
+	w.writeObjectIDItem("EMAILID", id, false)
+}
+
+// WriteThreadID writes the message's THREADID (RFC 8474 OBJECTID).
+//
+// If the server does not compute threads, an empty id is encoded as NIL.
+// Otherwise id must be a valid objectid.
+func (w *FetchResponseWriter) WriteThreadID(id string) {
+	w.writeObjectIDItem("THREADID", id, true)
+}
+
+func (w *FetchResponseWriter) writeObjectIDItem(name, id string, allowNil bool) {
+	w.writeItemSep()
+	w.enc.Atom(name).SP()
+	if id == "" && allowNil {
+		w.enc.NIL()
+	} else {
+		writeObjectID(w.enc.Encoder, id)
+	}
 }
 
 // WriteFlags writes the message's flags.

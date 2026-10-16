@@ -71,6 +71,10 @@ func (c *Conn) handleSearch(tag string, dec *imapwire.Decoder, numKind NumKind) 
 		return dec.Err()
 	}
 
+	if searchCriteriaUsesObjectID(&criteria) && !c.server.options.caps().Has(imap.CapObjectID) {
+		return newClientBugError("Unknown SEARCH criterion")
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
@@ -326,6 +330,20 @@ func readSearchKeyWithAtom(criteria *imap.SearchCriteria, dec *imapwire.Decoder,
 			return err
 		}
 		criteria.Or = append(criteria.Or, or)
+	case "EMAILID", "THREADID":
+		var id string
+		if !dec.ExpectSP() || !dec.ExpectAtom(&id) {
+			return dec.Err()
+		}
+		if !validObjectID(id) {
+			return newClientBugError("invalid OBJECTID")
+		}
+		switch key {
+		case "EMAILID":
+			criteria.EmailID = id
+		case "THREADID":
+			criteria.ThreadID = id
+		}
 	case "$":
 		criteria.UID = append(criteria.UID, imap.SearchRes())
 	default:
@@ -344,4 +362,25 @@ func readSearchKeyWithAtom(criteria *imap.SearchCriteria, dec *imapwire.Decoder,
 
 func searchKeyFlag(key string) imap.Flag {
 	return imap.Flag("\\" + strings.Title(strings.ToLower(key)))
+}
+
+// searchCriteriaUsesObjectID reports whether criteria contains an EMAILID or
+// THREADID search key, including inside NOT and OR sub-criteria.
+func searchCriteriaUsesObjectID(criteria *imap.SearchCriteria) bool {
+	if criteria.EmailID != "" || criteria.ThreadID != "" {
+		return true
+	}
+	for i := range criteria.Not {
+		if searchCriteriaUsesObjectID(&criteria.Not[i]) {
+			return true
+		}
+	}
+	for i := range criteria.Or {
+		for j := range criteria.Or[i] {
+			if searchCriteriaUsesObjectID(&criteria.Or[i][j]) {
+				return true
+			}
+		}
+	}
+	return false
 }

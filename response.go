@@ -49,6 +49,9 @@ const (
 
 	// APPENDLIMIT
 	ResponseCodeTooBig ResponseCode = "TOOBIG"
+
+	// OBJECTID (RFC 8474)
+	ResponseCodeMailboxID ResponseCode = "MAILBOXID"
 )
 
 // StatusResponse is a generic status response.

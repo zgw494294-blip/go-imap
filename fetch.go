@@ -21,6 +21,9 @@ type FetchOptions struct {
 	ModSeq            bool                          // requires CONDSTORE
 
 	ChangedSince uint64 // requires CONDSTORE
+
+	EmailID  bool // requires OBJECTID
+	ThreadID bool // requires OBJECTID
 }
 
 // FetchItemBodyStructure contains FETCH options for the body structure.
