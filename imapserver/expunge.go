@@ -40,6 +40,11 @@ type ExpungeWriter struct {
 	conn *Conn
 }
 
+// UIDOnly reports whether the connection has UIDONLY enabled (RFC 9586).
+func (w *ExpungeWriter) UIDOnly() bool {
+	return w.conn != nil && w.conn.uidOnlyEnabled()
+}
+
 // WriteExpunge notifies the client that the message with the provided sequence
 // number has been deleted.
 func (w *ExpungeWriter) WriteExpunge(seqNum uint32) error {
@@ -47,4 +52,19 @@ func (w *ExpungeWriter) WriteExpunge(seqNum uint32) error {
 		return nil
 	}
 	return w.conn.writeExpunge(seqNum)
+}
+
+// WriteExpungeUID notifies the client with a VANISHED response that the
+// message with the provided UID has been deleted (RFC 9586).
+//
+// It must be used instead of WriteExpunge when UIDONLY is enabled on the
+// connection.
+func (w *ExpungeWriter) WriteExpungeUID(uid imap.UID) error {
+	if w.conn == nil {
+		return nil
+	}
+	if uid == 0 {
+		panic("imapserver: ExpungeWriter.WriteExpungeUID requires a non-zero UID")
+	}
+	return w.conn.writeVanished(imap.UIDSetNum(uid))
 }

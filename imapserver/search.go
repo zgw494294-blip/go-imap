@@ -71,6 +71,16 @@ func (c *Conn) handleSearch(tag string, dec *imapwire.Decoder, numKind NumKind) 
 		return dec.Err()
 	}
 
+	// RFC 9586: SEARCH is prohibited in UIDONLY mode, and UID SEARCH must
+	// not contain any message sequence number criterion, including inside
+	// NOT, OR or parenthesized groups. These checks run before the state
+	// check, so the UIDREQUIRED code is always returned in UIDONLY mode.
+	if c.uidOnlyEnabled() {
+		if numKind == NumKindSeq || searchCriteriaContainsSeqNum(&criteria) {
+			return errUIDRequired
+		}
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
@@ -344,4 +354,26 @@ func readSearchKeyWithAtom(criteria *imap.SearchCriteria, dec *imapwire.Decoder,
 
 func searchKeyFlag(key string) imap.Flag {
 	return imap.Flag("\\" + strings.Title(strings.ToLower(key)))
+}
+
+// searchCriteriaContainsSeqNum reports whether the search criteria contains a
+// message sequence number criterion at any nesting level (NOT, OR and
+// parenthesized groups included).
+func searchCriteriaContainsSeqNum(criteria *imap.SearchCriteria) bool {
+	if len(criteria.SeqNum) > 0 {
+		return true
+	}
+	for i := range criteria.Not {
+		if searchCriteriaContainsSeqNum(&criteria.Not[i]) {
+			return true
+		}
+	}
+	for i := range criteria.Or {
+		for j := range criteria.Or[i] {
+			if searchCriteriaContainsSeqNum(&criteria.Or[i][j]) {
+				return true
+			}
+		}
+	}
+	return false
 }

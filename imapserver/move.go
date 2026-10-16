@@ -10,6 +10,9 @@ func (c *Conn) handleMove(dec *imapwire.Decoder, numKind NumKind) error {
 	if err != nil {
 		return err
 	}
+	if numKind == NumKindSeq && c.uidOnlyEnabled() {
+		return errUIDRequired
+	}
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
@@ -23,10 +26,15 @@ func (c *Conn) handleMove(dec *imapwire.Decoder, numKind NumKind) error {
 
 // MoveWriter writes responses for the MOVE command.
 //
-// Servers must first call WriteCopyData once, then call WriteExpunge any
-// number of times.
+// Servers must first call WriteCopyData once, then call WriteExpunge (or
+// WriteExpungeUID in UIDONLY mode) any number of times.
 type MoveWriter struct {
 	conn *Conn
+}
+
+// UIDOnly reports whether the connection has UIDONLY enabled (RFC 9586).
+func (w *MoveWriter) UIDOnly() bool {
+	return w.conn.uidOnlyEnabled()
 }
 
 // WriteCopyData writes the untagged COPYUID response for a MOVE command.
@@ -37,4 +45,15 @@ func (w *MoveWriter) WriteCopyData(data *imap.CopyData) error {
 // WriteExpunge writes an EXPUNGE response for a MOVE command.
 func (w *MoveWriter) WriteExpunge(seqNum uint32) error {
 	return w.conn.writeExpunge(seqNum)
+}
+
+// WriteExpungeUID writes a VANISHED response for a MOVE command (RFC 9586).
+//
+// It must be used instead of WriteExpunge when UIDONLY is enabled on the
+// connection.
+func (w *MoveWriter) WriteExpungeUID(uid imap.UID) error {
+	if uid == 0 {
+		panic("imapserver: MoveWriter.WriteExpungeUID requires a non-zero UID")
+	}
+	return w.conn.writeVanished(imap.UIDSetNum(uid))
 }

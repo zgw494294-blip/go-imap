@@ -263,7 +263,7 @@ func (mbox *Mailbox) expungeLocked(expunged map[*message]struct{}) (seqNums []ui
 		if _, ok := expunged[msg]; ok {
 			seqNum := uint32(i) + 1
 			seqNums = append(seqNums, seqNum)
-			mbox.tracker.QueueExpunge(seqNum)
+			mbox.tracker.QueueExpungeUID(seqNum, msg.uid)
 		} else {
 			filtered = append(filtered, msg)
 		}
@@ -329,7 +329,12 @@ func (mbox *MailboxView) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, op
 			mbox.Mailbox.tracker.QueueMessageFlags(seqNum, msg.uid, msg.flagList(), nil)
 		}
 
-		respWriter := w.CreateMessage(mbox.tracker.EncodeSeqNum(seqNum))
+		var respWriter *imapserver.FetchResponseWriter
+		if w.UIDOnly() {
+			respWriter = w.CreateMessageUID(msg.uid)
+		} else {
+			respWriter = w.CreateMessage(mbox.tracker.EncodeSeqNum(seqNum))
+		}
 		err = msg.fetch(respWriter, options)
 	})
 	return err

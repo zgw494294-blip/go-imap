@@ -153,6 +153,9 @@ func (c *Conn) serve() {
 	if _, ok := c.session.(SessionUnauthenticate); !ok && caps.Has(imap.CapUnauthenticate) {
 		panic("imapserver: server advertises UNAUTHENTICATE but session doesn't support it")
 	}
+	if _, ok := c.session.(SessionUIDOnly); !ok && caps.Has(imap.CapUIDOnly) {
+		panic("imapserver: server advertises UIDONLY but session doesn't support it")
+	}
 
 	c.state = imap.ConnStateNotAuthenticated
 	statusType := imap.StatusResponseTypeOK
@@ -592,6 +595,38 @@ func (w *UpdateWriter) WriteExpunge(seqNum uint32) error {
 	return w.conn.writeExpunge(seqNum)
 }
 
+// WriteExpungeUID writes a VANISHED response for a message deleted on
+// another connection.
+//
+// It must be used instead of WriteExpunge when UIDONLY is enabled on the
+// connection.
+func (w *UpdateWriter) WriteExpungeUID(uid imap.UID) error {
+	if uid == 0 {
+		panic("imapserver: UpdateWriter.WriteExpungeUID requires a non-zero UID")
+	}
+	return w.WriteVanished(imap.UIDSetNum(uid))
+}
+
+// WriteVanished writes a VANISHED response containing a set of UIDs of
+// messages deleted on another connection.
+//
+// It must be used instead of EXPUNGE responses when UIDONLY is enabled on
+// the connection.
+func (w *UpdateWriter) WriteVanished(uids imap.UIDSet) error {
+	if len(uids) == 0 {
+		return fmt.Errorf("imapserver: WriteVanished requires at least one UID")
+	}
+	if !w.allowExpunge {
+		return fmt.Errorf("imapserver: VANISHED updates are not allowed in this context")
+	}
+	return w.conn.writeVanished(uids)
+}
+
+// UIDOnly reports whether the connection has UIDONLY enabled (RFC 9586).
+func (w *UpdateWriter) UIDOnly() bool {
+	return w.conn.uidOnlyEnabled()
+}
+
 // WriteNumMessages writes an EXISTS response.
 func (w *UpdateWriter) WriteNumMessages(n uint32) error {
 	return w.conn.writeExists(n)
@@ -610,12 +645,21 @@ func (w *UpdateWriter) WriteMailboxFlags(flags []imap.Flag) error {
 	return w.conn.writeFlags(flags)
 }
 
-// WriteMessageFlags writes a FETCH response with FLAGS.
+// WriteMessageFlags writes a FETCH (or UIDFETCH in UIDONLY mode) response
+// with FLAGS.
 func (w *UpdateWriter) WriteMessageFlags(seqNum uint32, uid imap.UID, flags []imap.Flag) error {
 	fetchWriter := &FetchWriter{conn: w.conn}
-	respWriter := fetchWriter.CreateMessage(seqNum)
-	if uid != 0 {
-		respWriter.WriteUID(uid)
+	var respWriter *FetchResponseWriter
+	if w.conn.uidOnlyEnabled() {
+		if uid == 0 {
+			return fmt.Errorf("imapserver: a non-zero UID is required to write message flags in UIDONLY mode")
+		}
+		respWriter = fetchWriter.CreateMessageUID(uid)
+	} else {
+		respWriter = fetchWriter.CreateMessage(seqNum)
+		if uid != 0 {
+			respWriter.WriteUID(uid)
+		}
 	}
 	respWriter.WriteFlags(flags)
 	return respWriter.Close()

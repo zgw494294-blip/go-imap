@@ -79,12 +79,23 @@ func (c *Conn) handleFetch(dec *imapwire.Decoder, numKind NumKind) error {
 		return dec.Err()
 	}
 
+	// RFC 9586: sequence-number commands are always rejected in UIDONLY
+	// mode, regardless of the connection state.
+	if numKind == NumKindSeq && c.uidOnlyEnabled() {
+		return errUIDRequired
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
 
 	if numKind == NumKindUID {
-		options.UID = true
+		// In UIDONLY mode, the UID message data item is only included if
+		// explicitly requested by the client: the leading UID of the
+		// UIDFETCH response already identifies the message (RFC 9586).
+		if !c.uidOnlyEnabled() {
+			options.UID = true
+		}
 	}
 
 	w := &FetchWriter{conn: c, options: writerOptions}
@@ -328,12 +339,38 @@ type FetchWriter struct {
 	options fetchWriterOptions
 }
 
+// UIDOnly reports whether the connection has UIDONLY enabled (RFC 9586).
+//
+// When true, backends must use CreateMessageUID instead of CreateMessage.
+func (cmd *FetchWriter) UIDOnly() bool {
+	return cmd.conn.uidOnlyEnabled()
+}
+
 // CreateMessage writes a FETCH response for a message.
 //
 // FetchResponseWriter.Close must be called.
+//
+// CreateMessage panics if UIDONLY is enabled on the connection; use
+// CreateMessageUID in that case.
 func (cmd *FetchWriter) CreateMessage(seqNum uint32) *FetchResponseWriter {
+	if cmd.conn.uidOnlyEnabled() {
+		panic("imapserver: FetchWriter.CreateMessage cannot be used in UIDONLY mode, use CreateMessageUID")
+	}
 	enc := newResponseEncoder(cmd.conn)
 	enc.Atom("*").SP().Number(seqNum).SP().Atom("FETCH").SP().Special('(')
+	return &FetchResponseWriter{enc: enc, options: cmd.options}
+}
+
+// CreateMessageUID writes a UIDFETCH response for a message (RFC 9586).
+//
+// The leading number is the message UID rather than a message sequence
+// number. FetchResponseWriter.Close must be called.
+func (cmd *FetchWriter) CreateMessageUID(uid imap.UID) *FetchResponseWriter {
+	if uid == 0 {
+		panic("imapserver: FetchWriter.CreateMessageUID requires a non-zero UID")
+	}
+	enc := newResponseEncoder(cmd.conn)
+	enc.Atom("*").SP().UID(uid).SP().Atom("UIDFETCH").SP().Special('(')
 	return &FetchResponseWriter{enc: enc, options: cmd.options}
 }
 
@@ -350,6 +387,11 @@ func (w *FetchResponseWriter) writeItemSep() {
 		w.enc.SP()
 	}
 	w.hasItem = true
+}
+
+// UIDOnly reports whether the connection has UIDONLY enabled (RFC 9586).
+func (w *FetchResponseWriter) UIDOnly() bool {
+	return w.enc.conn.uidOnlyEnabled()
 }
 
 // WriteUID writes the message's UID.

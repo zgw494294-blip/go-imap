@@ -72,6 +72,21 @@ func (t *MailboxTracker) QueueExpunge(seqNum uint32) {
 	t.queueUpdate(&trackerUpdate{expunge: seqNum}, nil)
 }
 
+// QueueExpungeUID queues a new EXPUNGE update, also recording the UID of the
+// expunged message.
+//
+// The sequence number is used for mailbox state tracking, while the UID is
+// required to send VANISHED responses to connections with UIDONLY enabled.
+func (t *MailboxTracker) QueueExpungeUID(seqNum uint32, uid imap.UID) {
+	if seqNum == 0 {
+		panic("imapserver: invalid expunge message sequence number")
+	}
+	if uid == 0 {
+		panic("imapserver: invalid expunge message UID")
+	}
+	t.queueUpdate(&trackerUpdate{expunge: seqNum, expungeUID: uid}, nil)
+}
+
 // QueueNumMessages queues a new EXISTS update.
 func (t *MailboxTracker) QueueNumMessages(n uint32) {
 	// TODO: merge consecutive NumMessages updates
@@ -99,6 +114,7 @@ func (t *MailboxTracker) QueueMessageFlags(seqNum uint32, uid imap.UID, flags []
 
 type trackerUpdate struct {
 	expunge      uint32
+	expungeUID   imap.UID
 	numMessages  uint32
 	mailboxFlags []imap.Flag
 	fetch        *trackerUpdateFetch
@@ -168,17 +184,44 @@ func (t *SessionTracker) Poll(w *UpdateWriter, allowExpunge bool) error {
 	}
 	t.mutex.Unlock()
 
+	uidOnly := w.conn.uidOnlyEnabled()
+	var vanished imap.UIDSet
+	flushVanished := func() error {
+		if len(vanished) == 0 {
+			return nil
+		}
+		err := w.WriteVanished(vanished)
+		vanished = nil
+		return err
+	}
+
 	for _, update := range updates {
 		var err error
 		switch {
 		case update.expunge != 0:
-			err = w.WriteExpunge(update.expunge)
+			if uidOnly {
+				if update.expungeUID == 0 {
+					panic(fmt.Errorf("imapserver: UID required for VANISHED update in UIDONLY mode, use MailboxTracker.QueueExpungeUID"))
+				}
+				// Coalesce consecutive expunges into a single VANISHED
+				// response; the set is flushed before any other update
+				// type to preserve response ordering.
+				vanished.AddNum(update.expungeUID)
+			} else {
+				err = w.WriteExpunge(update.expunge)
+			}
 		case update.numMessages != 0:
-			err = w.WriteNumMessages(update.numMessages)
+			if err = flushVanished(); err == nil {
+				err = w.WriteNumMessages(update.numMessages)
+			}
 		case update.mailboxFlags != nil:
-			err = w.WriteMailboxFlags(update.mailboxFlags)
+			if err = flushVanished(); err == nil {
+				err = w.WriteMailboxFlags(update.mailboxFlags)
+			}
 		case update.fetch != nil:
-			err = w.WriteMessageFlags(update.fetch.seqNum, update.fetch.uid, update.fetch.flags)
+			if err = flushVanished(); err == nil {
+				err = w.WriteMessageFlags(update.fetch.seqNum, update.fetch.uid, update.fetch.flags)
+			}
 		default:
 			panic(fmt.Errorf("imapserver: unknown tracker update %#v", update))
 		}
@@ -186,7 +229,7 @@ func (t *SessionTracker) Poll(w *UpdateWriter, allowExpunge bool) error {
 			return err
 		}
 	}
-	return nil
+	return flushVanished()
 }
 
 // Idle continuously writes mailbox updates.

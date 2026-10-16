@@ -10,6 +10,9 @@ func (c *Conn) handleCopy(tag string, dec *imapwire.Decoder, numKind NumKind) er
 	if err != nil {
 		return err
 	}
+	if numKind == NumKindSeq && c.uidOnlyEnabled() {
+		return errUIDRequired
+	}
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}

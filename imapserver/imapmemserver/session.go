@@ -20,6 +20,7 @@ type UserSession struct {
 }
 
 var _ imapserver.SessionIMAP4rev2 = (*UserSession)(nil)
+var _ imapserver.SessionUIDOnly = (*UserSession)(nil)
 
 // NewUserSession creates a new user session.
 func NewUserSession(user *User) *UserSession {
@@ -114,6 +115,13 @@ func (sess *UserSession) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest
 	})
 	if err != nil {
 		return err
+	}
+
+	if w.UIDOnly() {
+		// In UIDONLY mode, the moved messages are announced with
+		// VANISHED responses (containing their real UIDs) when pending
+		// mailbox updates are polled after the command.
+		return nil
 	}
 
 	for _, seqNum := range seqNums {

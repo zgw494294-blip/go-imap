@@ -26,7 +26,12 @@ type message struct {
 }
 
 func (msg *message) fetch(w *imapserver.FetchResponseWriter, options *imap.FetchOptions) error {
-	w.WriteUID(msg.uid)
+	// In UIDONLY mode, the UID message data item is only included when
+	// requested: the leading UID of the UIDFETCH response already
+	// identifies the message (RFC 9586).
+	if options.UID || !w.UIDOnly() {
+		w.WriteUID(msg.uid)
+	}
 
 	if options.Flags {
 		w.WriteFlags(msg.flagList())

@@ -64,6 +64,10 @@ func (c *Conn) handleStore(dec *imapwire.Decoder, numKind NumKind) error {
 		return newClientBugError("STORE can only change FLAGS")
 	}
 
+	if numKind == NumKindSeq && c.uidOnlyEnabled() {
+		return errUIDRequired
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}

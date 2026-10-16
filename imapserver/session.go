@@ -115,6 +115,17 @@ type SessionUnauthenticate interface {
 	Unauthenticate() error
 }
 
+// SessionUIDOnly is an IMAP session which supports UIDONLY (RFC 9586).
+//
+// Sessions implementing this interface must make sure that, when UIDONLY is
+// enabled on the connection, the UID-based response writer methods are used:
+// FetchWriter.CreateMessageUID, ExpungeWriter.WriteExpungeUID,
+// MoveWriter.WriteExpungeUID and UpdateWriter.WriteExpungeUID. Message
+// sequence numbers must not be sent in any response.
+type SessionUIDOnly interface {
+	Session
+}
+
 // SessionAppendLimit is an IMAP session which has the same APPEND limit for
 // all mailboxes.
 type SessionAppendLimit interface {

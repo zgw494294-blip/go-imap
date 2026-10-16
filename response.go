@@ -40,6 +40,7 @@ const (
 	ResponseCodePrivacyRequired      ResponseCode = "PRIVACYREQUIRED"
 	ResponseCodeServerBug            ResponseCode = "SERVERBUG"
 	ResponseCodeTryCreate            ResponseCode = "TRYCREATE"
+	ResponseCodeUIDRequired          ResponseCode = "UIDREQUIRED" // RFC 9586
 	ResponseCodeUnavailable          ResponseCode = "UNAVAILABLE"
 	ResponseCodeUnknownCTE           ResponseCode = "UNKNOWN-CTE"
 

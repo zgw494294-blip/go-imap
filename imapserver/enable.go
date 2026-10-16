@@ -28,6 +28,12 @@ func (c *Conn) handleEnable(dec *imapwire.Decoder) error {
 		switch req {
 		case imap.CapIMAP4rev2, imap.CapUTF8Accept:
 			enabled = append(enabled, req)
+		case imap.CapUIDOnly:
+			// Only enable UIDONLY if the server explicitly advertises
+			// support for it (RFC 9586).
+			if c.server.options.caps().Has(imap.CapUIDOnly) {
+				enabled = append(enabled, req)
+			}
 		}
 	}
 
